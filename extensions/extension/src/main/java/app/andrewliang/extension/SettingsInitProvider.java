@@ -23,6 +23,10 @@ public final class SettingsInitProvider extends ContentProvider {
     @Override
     public boolean onCreate() {
         Settings.initialize(getContext());
+        // The group read checker needs an app Context to reach LINE's databases from inside the op
+        // handler, which has none to pass. Captured here for the same reason Settings is: a provider
+        // runs before Application.onCreate with no LINE anchor to break on a version bump.
+        ReadReceipts.setContext(getContext());
         return true;
     }
 

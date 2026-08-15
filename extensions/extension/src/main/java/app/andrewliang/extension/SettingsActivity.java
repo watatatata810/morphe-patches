@@ -140,7 +140,7 @@ public final class SettingsActivity extends Activity {
         header.addView(title);
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("Turn individual patches on or off. Everything is on by default.");
+        subtitle.setText("Turn individual patches on or off. Most are on by default.");
         subtitle.setTextColor(COLOR_SUMMARY);
         subtitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f);
         subtitle.setPadding(0, dp(6), 0, 0);

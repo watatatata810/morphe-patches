@@ -230,6 +230,7 @@ worse. Findings so far (full anchors in `docs/line-patch-map.md`):
 | LYP premium entitlements | **server** — account state; `hidepremium` only hides the upsells | not patchable |
 | Call ringtone selection | **client** — `be7.c.a` can return an arbitrary `Uri`, played by LINE's own `MediaPlayer` in-process (`xx.c`) | **patchable** — investigated, deliberately not shipped |
 | Ringback tone friends hear | **server** — the callee's tone is delivered to the *caller's* client in their connect info | not patchable |
+| Group read receipts (who read) | **at rest: aggregate; live: per-reader** — bulk `getMessageReadRange` + local DB (`chat_read_count_meta_data`, `ReadCountManager`) are count-only, but each live `NOTIFIED_READ_MESSAGE` op carries `param2`=reader mid, `param3`=message server_id | **implemented, device-verified, forward-only** — the `Group read checker` patch (`readreceipts/`) captures live ops, self-accumulates, and makes the 「既読 N」 count tappable to show readers; opt-in (off by default). See `docs/line-patch-map.md` |
 
 - **Client-side config is not the same as server enforcement.** The unsend windows and photo tiers
   are *both* pushed from server settings (`function.chatroom.message.unsend.timelimit`,

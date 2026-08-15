@@ -120,7 +120,15 @@ public final class Settings {
         KEEP_UNSENT_MESSAGES(
                 "Behaviour", "keep_unsent_messages",
                 "Keep unsent messages",
-                "Keep messages that were unsent, with the usual notice below them.");
+                "Keep messages that were unsent, with the usual notice below them."),
+
+        GROUP_READ_CHECKER(
+                "Read receipts", "group_read_checker",
+                "Group read checker",
+                "Record who reads each message in a group (going forward only) and view them "
+                        + "from a button inside the chat. Off by default; read data is stored on "
+                        + "your device.",
+                false);
 
         /** Section this setting is listed under. Entries of a category must stay adjacent. */
         public final String category;
@@ -128,11 +136,27 @@ public final class Settings {
         public final String title;
         public final String summary;
 
+        /**
+         * The value {@link #isEnabled(Key)} reports when the store has no entry for this key.
+         *
+         * <p>Almost every toggle defaults on (see {@link #DEFAULT_VALUE}) so that a patched-in
+         * feature keeps behaving like the unconditional bytecode it replaced. A feature that is
+         * <em>additive</em> and privacy-sensitive rather than a replacement — the group read
+         * checker records who reads your messages — instead defaults off, so installing the bundle
+         * never starts collecting anything until the user asks for it.
+         */
+        public final boolean defaultValue;
+
         Key(String category, String key, String title, String summary) {
+            this(category, key, title, summary, DEFAULT_VALUE);
+        }
+
+        Key(String category, String key, String title, String summary, boolean defaultValue) {
             this.category = category;
             this.key = key;
             this.title = title;
             this.summary = summary;
+            this.defaultValue = defaultValue;
         }
     }
 
@@ -177,9 +201,26 @@ public final class Settings {
         }
     }
 
-    /** @return whether the toggle for {@code key} is on. */
+    /**
+     * @return whether the toggle for {@code key} is on. Unlike {@link #isEnabled(String)} this
+     *         honours the key's own {@link Key#defaultValue}, so a key that defaults off reports
+     *         off until the user turns it on. This overload is what {@link SettingsActivity} reads
+     *         for a switch's initial state and what the extension calls for an off-by-default
+     *         feature; injected smali uses the string overload and its global default.
+     */
     public static boolean isEnabled(Key key) {
-        return isEnabled(key.key);
+        if (key == null) {
+            return DEFAULT_VALUE;
+        }
+        SharedPreferences prefs = preferences;
+        if (prefs == null) {
+            return key.defaultValue;
+        }
+        try {
+            return prefs.getBoolean(key.key, key.defaultValue);
+        } catch (Throwable t) {
+            return key.defaultValue;
+        }
     }
 
     /**

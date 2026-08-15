@@ -820,6 +820,104 @@ APK names Play Services and there is no string to redirect; MicroG-RE implements
 `CredentialProviderService` either. The Drive **backup** picker is a different mechanism and *is*
 patchable — see the two-path section above.
 
+**Show who put 「既読」 in a group (per-reader read receipts) — feasible FORWARD-ONLY, not shipped.**
+*Not a true dead end* (mis-filed here for the trail). At rest the client holds only aggregate
+**counts** — bulk `getMessageReadRange` (LegacyTalkService `LegacyTalkServiceClientImpl$a.b`, args
+`cb8.wk` / result `cb8.xk`) returns `List<TMessageReadRange{chatId,
+entries:[TMessageReadRangeEntry{startMessageId, endMessageId, readCount}]}>`, and local storage is
+count/range only (`f88.a` = table `chat_read_count_meta_data`, `f88.h` = `read_message_range`, plus
+the `read_message_count` column; the manager is literally `ReadCountManager`); no per-member read
+table, no `getReadMembers`/`readerMid` API. **But** each *live* `NOTIFIED_READ_MESSAGE` operation
+(OpType enum `cb8.ce`) carries the reader's identity: `Operation.toString()` emits
+`type:NOTIFIED_READ_MESSAGE … param2:<readerMid> param3:<messageServerId>` (the `, param2:` /
+`, param3:` labels and the enum name are present in the 26.11.0 dex). So "who read" can be
+reconstructed by capturing the op stream and accumulating it yourself — **forward-only**, no way to
+backfill reads that happened before capture starts. (1:1 read receipts are inherently per-person and
+need none of this.)
+
+Reference implementation: **LIME**'s `ReadChecker` (github.com/Chipppppppppp/LIME, **MIT**, Xposed).
+It `hookAllMethods` on the op-processing coroutine `mh1.b.invokeSuspend` (obfuscated), and on a
+`NOTIFIED_READ_MESSAGE` regex-extracts `param2`/`param3`, joins LINE's own `naver_line` DB
+(`chat_history.server_id → chat_id / content / created_time / attachement_type`, `groups.name`) and
+`contact` DB (`contacts.mid → profile_name`), writes to its **own** `lime_checked_data.db`, and marks
+all earlier messages read by that member (watermark). UI = a button injected into
+`ChatHistoryActivity.onCreate` opening a dialog list, plus a `ChatHistoryRequest.getChatId` hook for
+the current chat id.
+
+Portability to this bundle (static patch — **no root**, unlike LIME's LSPosed requirement): every
+anchor is stable and **confirmed present in 26.11.0** —
+`com.linecorp.line.chat.request.ChatHistoryRequest`,
+`jp.naver.line.android.activity.chathistory.ChatHistoryActivity`, the `Operation.toString()`
+`param2:`/`param3:` labels, and the `contacts` / `groups` / `chat_history` schema.
+
+**Op-capture anchor — RESOLVED for 26.11.0, and more robustly than LIME's hardcoded `mh1.b`.** LINE
+dispatches ops through per-type handler classes extending base `d98.a` (base holds the op type in
+field `a`, ctor `<init>(Lcb8/ce;)V`; `cb8.ce` is the OpType enum, `cb8.de` the Operation struct).
+The NOTIFIED_READ_MESSAGE handler is the subclass whose `<init>` does
+`sget-object Lcb8/ce;->NOTIFIED_READ_MESSAGE:Lcb8/ce;` then `invoke-direct Ld98/a;-><init>(Lcb8/ce;)V`
+— in 26.11.0 that is **`e98.e2`**. Its override
+**`b(Ld98/q0;, Lcb8/de;, Lkotlin/coroutines/Continuation;)Ljava/lang/Object;`** is the dedicated
+read-op processor, and its **2nd parameter is the Operation `cb8.de`**; the handler body reads
+exactly `cb8.de.g` (param1 = chat mid), `.h` (param2 = reader mid), `.i` (param3 = message id, parsed
+via `te8.v.m(String)Long`). Inject a branchless side-effect `invoke-static` at index 0 passing the
+Operation param (`p2`), and in the extension call `.toString()` + regex `param2:` / `param3:`
+(obfuscation-proof, same as LIME) — **no type check needed**, this handler only fires for read ops.
+The **stable anchor is the non-obfuscated `NOTIFIED_READ_MESSAGE` enum-constant name** on the OpType
+enum; everything else (`e98.e2`, `d98.a`, `cb8.de`, fields `g`/`h`/`i`) is derived from it at patch
+time and re-derived on a version bump. (Tools: `work/StringRefs.java` `fieldrefs`/`fields`/`refs`,
+`work/DexVerify.java dump`.)
+
+Build shape: inject at `e98.e2.b` (index 0) → extension parses the op → reads LINE's `naver_line` /
+`contact` DBs → accumulates in an extension-owned SQLite → inject at `ChatHistoryActivity.onCreate`
+→ extension makes each per-message 「既読 N」 count tappable, opening the read report (and
+`ChatHistoryRequest.getChatId` for the current chat id). It stays forward-only, and it logs
+who-read to on-device storage.
+
+**Status: implemented (opt-in), DEVICE-VERIFIED working (26.11.0, Galaxy S24 Ultra / Android).**
+Shipped as the `Group read checker` patch (`patches/…/line/readreceipts/`, extension
+`ReadReceipts.java`). Three branchless index-0 side-effect injections: the op handler is located by
+`ReadOpHandlerFingerprint` (the `NOTIFIED_READ_MESSAGE`-registering ctor → its `(_, Operation,
+Continuation)` method), the two non-obfuscated UI classes by `mutableClassDefBy`. Off by default via
+a per-key default on `Settings.Key` (`GROUP_READ_CHECKER`, `defaultValue = false` — the first key
+that defaults off, so the injections ship dormant). Device-confirmed end to end: read ops are
+captured (`param2` reader mid / `param3` message id from `Operation.toString()`), the reader resolves
+to a display name from `contact`.`contacts.profile_name`, message text/time come from
+`naver_line`.`chat_history`, and tapping 「既読 N」 opens the per-message reader dialog.
+
+**UI = tap the read count → a per-message bottom sheet** (not a floating button; device-verified).
+Everything anchors on non-obfuscated resource ids — re-derive on a version bump with
+`aapt2 dump resources base.apk | grep <name>`, and find the live ids fast with
+`adb shell uiautomator dump` on an open group chat:
+
+- `chat_ui_row_read_count` (`0x7f0b0870`) — the tappable 「既読 N」 TextView.
+- `chathistory_message_list` (`0x7f0b096a`) — the message RecyclerView `decorate(Activity)` walks on
+  each layout pass, setting a click listener on each count view (idempotent via
+  `hasOnClickListeners()`).
+- `chat_ui_message_text` (`0x7f0b0798`) and `chat_ui_row_timestamp` (`0x7f0b08a6`) — read from the
+  tapped row to identify the message.
+
+Each reader row shows a circular avatar left of the name, device-verified with a real picture.
+**`contacts.picture_path` is not a filesystem path despite the name** — it is the picture's **OBS
+object path**: device-confirmed, its value is `picture_status` with a leading `/`, and
+`new File(path).exists()` is false. LINE renders it through its own obfuscated OBS URL builder
+(`OBSUrlBuilder`, host not a literal in the APK) and image loader; rather than reaching into either,
+the extension fetches `https://profile.line-scdn.net` + `picture_path` + `/preview` (verified
+`200 image/jpeg`, ~10 KB vs ~103 KB for the original), caches it under `cacheDir/morphe_avatars`
+keyed by an MD5 of the path, and circle-crops it. The coloured initial is drawn synchronously and the
+photo only ever *upgrades* it off the main thread, so every failure degrades to the initial. Searching
+LINE's own data dir for a cached copy was tried first and abandoned — no filename carries the OBS
+hash (its image cache keys by its own digest).
+
+**Per-message without decoding the model.** The obfuscated message model (`s61.r` → `l11.a` → `w81.a`,
+all empty polymorphic bases) exposes no clean `server_id`, so instead of hooking the row controller
+`oj1.d`, the tapped row's visible **text + minute** are matched back to `chat_history` (text rows by
+`content`, media/sticker rows — no text view — by null `content` at that minute). Several messages
+sharing a minute and content are folded together and the readers of the earliest are shown, so no
+reader is missed. The sheet slides up from the bottom (like LINE's reaction viewer) and matches
+LINE's in-app dark/light theme by the **luminance of the tapped count's own text colour** — the one
+signal that survives; the system night flag and the activity theme's `colorBackground` both read
+light while LINE renders dark, and its chat background is not a sampleable `ColorDrawable`.
+
 **Note on the OBS size ceiling.** It has never been observed directly — 20 MB is inferred from
 LINE's own client-side threshold. Sub-20 MB originals are known to upload byte-identical, so that
 much is safe; record the real limit here if a device test ever surfaces `EXCEED_FILE_MAX_SIZE`.

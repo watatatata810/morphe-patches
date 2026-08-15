@@ -31,4 +31,6 @@ object SettingKeys {
     const val EXTERNAL_BROWSER = "external_browser"
     const val KEEP_CHATS_UNREAD = "keep_chats_unread"
     const val KEEP_UNSENT_MESSAGES = "keep_unsent_messages"
+
+    const val GROUP_READ_CHECKER = "group_read_checker"
 }
