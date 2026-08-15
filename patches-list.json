@@ -4,9 +4,11 @@
   "patches": [
     {
       "name": "Disable LINE Premium",
-      "description": "Hides all LINE Yahoo Premium (LYP) surfaces — upsells, badges, the Premium settings page, and subscribe/manage flows. Doesn't unlock anything (premium is server-enforced).",
+      "description": "Hides all LINE Yahoo Premium (LYP) surfaces — upsells, badges, the Premium settings page, and subscribe/manage flows. Doesn't unlock anything (premium is server-enforced). Can be turned off again from the LINE Patches settings screen.",
       "default": true,
-      "dependencies": [],
+      "dependencies": [
+        "BytecodePatch"
+      ],
       "compatiblePackages": [
         {
           "packageName": "jp.naver.line.android",
@@ -30,9 +32,11 @@
     },
     {
       "name": "Disable VOOM",
-      "description": "Neutralizes VOOM entry points — deep links, shares, and notifications do nothing and the standalone VOOM feed closes on open. Messaging and other tabs are unaffected.",
+      "description": "Neutralizes VOOM entry points — deep links, shares, and notifications do nothing and the standalone VOOM feed closes on open. Messaging and other tabs are unaffected. Can be turned off again from the LINE Patches settings screen.",
       "default": true,
-      "dependencies": [],
+      "dependencies": [
+        "BytecodePatch"
+      ],
       "compatiblePackages": [
         {
           "packageName": "jp.naver.line.android",
@@ -110,9 +114,11 @@
     },
     {
       "name": "Hide Events button",
-      "description": "Removes the \"Events\" row from a chat room's slide-out menu. (Events is a separate feature from LINE Calendar — it opens a server-hosted page.)",
+      "description": "Removes the \"Events\" row from a chat room's slide-out menu. (Events is a separate feature from LINE Calendar — it opens a server-hosted page.) Can be turned off again from the LINE Patches settings screen.",
       "default": true,
-      "dependencies": [],
+      "dependencies": [
+        "BytecodePatch"
+      ],
       "compatiblePackages": [
         {
           "packageName": "jp.naver.line.android",
@@ -136,9 +142,11 @@
     },
     {
       "name": "Hide Home modules",
-      "description": "Hides Home-tab clutter modules: the recommended stickers/content section, the real-time hot-topics (即時夯話題) block, and Home feed ads.",
+      "description": "Hides Home-tab clutter modules: the recommended stickers/content section, the real-time hot-topics (即時夯話題) block, and Home feed ads. Can be turned off again from the LINE Patches settings screen.",
       "default": true,
-      "dependencies": [],
+      "dependencies": [
+        "BytecodePatch"
+      ],
       "compatiblePackages": [
         {
           "packageName": "jp.naver.line.android",
@@ -162,9 +170,11 @@
     },
     {
       "name": "Hide LINE GIFT button",
-      "description": "Removes the LINE GIFT tile from a chat room's + attach menu.",
+      "description": "Removes the LINE GIFT tile from a chat room's + attach menu. Can be turned off again from the LINE Patches settings screen.",
       "default": true,
-      "dependencies": [],
+      "dependencies": [
+        "BytecodePatch"
+      ],
       "compatiblePackages": [
         {
           "packageName": "jp.naver.line.android",
@@ -188,9 +198,11 @@
     },
     {
       "name": "Hide LINE TODAY tab",
-      "description": "Removes the LINE TODAY (News) tab from the main bottom navigation, in both the news-tab and news-row layouts.",
+      "description": "Removes the LINE TODAY (News) tab from the main bottom navigation, in both the news-tab and news-row layouts. Can be turned off again from the LINE Patches settings screen.",
       "default": true,
-      "dependencies": [],
+      "dependencies": [
+        "BytecodePatch"
+      ],
       "compatiblePackages": [
         {
           "packageName": "jp.naver.line.android",
@@ -214,9 +226,11 @@
     },
     {
       "name": "Hide Transfer button",
-      "description": "Removes the Transfer (LINE Pay) tile from a chat room's + attach menu.",
+      "description": "Removes the Transfer (LINE Pay) tile from a chat room's + attach menu. Can be turned off again from the LINE Patches settings screen.",
       "default": true,
-      "dependencies": [],
+      "dependencies": [
+        "BytecodePatch"
+      ],
       "compatiblePackages": [
         {
           "packageName": "jp.naver.line.android",
@@ -240,9 +254,11 @@
     },
     {
       "name": "Hide VOOM tab",
-      "description": "Removes the VOOM (formerly Timeline) tab from the main bottom navigation.",
+      "description": "Removes the VOOM (formerly Timeline) tab from the main bottom navigation. Can be turned off again from the LINE Patches settings screen.",
       "default": true,
-      "dependencies": [],
+      "dependencies": [
+        "BytecodePatch"
+      ],
       "compatiblePackages": [
         {
           "packageName": "jp.naver.line.android",
@@ -266,9 +282,11 @@
     },
     {
       "name": "Hide Wallet tab",
-      "description": "Removes the Wallet (LINE Pay) tab from the main bottom navigation, in both the normal and mini-tab layouts.",
+      "description": "Removes the Wallet (LINE Pay) tab from the main bottom navigation, in both the normal and mini-tab layouts. Can be turned off again from the LINE Patches settings screen.",
       "default": true,
-      "dependencies": [],
+      "dependencies": [
+        "BytecodePatch"
+      ],
       "compatiblePackages": [
         {
           "packageName": "jp.naver.line.android",
@@ -292,9 +310,11 @@
     },
     {
       "name": "Hide ad views",
-      "description": "Hides LINE display ad views — the LINE Ads SDK containers across the app, the chat-list Smart Channel banner, and Google AdManager ads.",
+      "description": "Hides LINE display ad views — the LINE Ads SDK containers across the app, the chat-list Smart Channel banner, and Google AdManager ads. Can be turned off again from the LINE Patches settings screen.",
       "default": true,
-      "dependencies": [],
+      "dependencies": [
+        "BytecodePatch"
+      ],
       "compatiblePackages": [
         {
           "packageName": "jp.naver.line.android",
@@ -318,9 +338,11 @@
     },
     {
       "name": "Hide attach menu extra tools",
-      "description": "Removes all the server-provided extra tools from a chat room's + attach menu (Poll, Reservation, Schedule, Ladder shuffle, and any others). The built-in tiles (camera, gallery, files, contact, etc.) are unaffected.",
+      "description": "Removes all the server-provided extra tools from a chat room's + attach menu (Poll, Reservation, Schedule, Ladder shuffle, and any others). The built-in tiles (camera, gallery, files, contact, etc.) are unaffected. Can be turned off again from the LINE Patches settings screen.",
       "default": true,
-      "dependencies": [],
+      "dependencies": [
+        "BytecodePatch"
+      ],
       "compatiblePackages": [
         {
           "packageName": "jp.naver.line.android",
@@ -344,9 +366,11 @@
     },
     {
       "name": "Hide calendar buttons",
-      "description": "Removes every LINE Calendar button inside the messenger: the one in the Chats-tab header, and the four inside a chat room — the top toolbar, the + attach menu, the slide-out chat menu, and the message long-press menu.",
+      "description": "Removes every LINE Calendar button inside the messenger: the one in the Chats-tab header, and the four inside a chat room — the top toolbar, the + attach menu, the slide-out chat menu, and the message long-press menu. Can be turned off again from the LINE Patches settings screen.",
       "default": true,
-      "dependencies": [],
+      "dependencies": [
+        "BytecodePatch"
+      ],
       "compatiblePackages": [
         {
           "packageName": "jp.naver.line.android",
@@ -370,9 +394,11 @@
     },
     {
       "name": "Hide community button",
-      "description": "Removes the community (OpenChat) button from the top of the Chats tab header.",
+      "description": "Removes the community (OpenChat) button from the top of the Chats tab header. Can be turned off again from the LINE Patches settings screen.",
       "default": true,
-      "dependencies": [],
+      "dependencies": [
+        "BytecodePatch"
+      ],
       "compatiblePackages": [
         {
           "packageName": "jp.naver.line.android",
@@ -396,9 +422,11 @@
     },
     {
       "name": "Hide premium unsend upsells",
-      "description": "Removes the LYP premium-unsend upsells that survive \"Disable LINE Premium\": the \"Unsend discreetly\" button, the post-unsend promo link, and the expired-window unsend upsell. Ordinary unsend still works.",
+      "description": "Removes the LYP premium-unsend upsells that survive \"Disable LINE Premium\": the \"Unsend discreetly\" button, the post-unsend promo link, and the expired-window unsend upsell. Ordinary unsend still works. Can be turned off again from the LINE Patches settings screen.",
       "default": true,
-      "dependencies": [],
+      "dependencies": [
+        "BytecodePatch"
+      ],
       "compatiblePackages": [
         {
           "packageName": "jp.naver.line.android",
@@ -422,9 +450,11 @@
     },
     {
       "name": "Keep chats unread",
-      "description": "Opening a 1:1 or group chat no longer marks it read — it stays unread and no read receipt is sent. Manually using \"Mark as read\" / \"Mark all as read\" still marks the chat read and sends the receipt as normal.",
+      "description": "Opening a 1:1 or group chat no longer marks it read — it stays unread and no read receipt is sent. Manually using \"Mark as read\" / \"Mark all as read\" still marks the chat read and sends the receipt as normal. Can be turned off again from the LINE Patches settings screen.",
       "default": true,
-      "dependencies": [],
+      "dependencies": [
+        "BytecodePatch"
+      ],
       "compatiblePackages": [
         {
           "packageName": "jp.naver.line.android",
@@ -448,9 +478,11 @@
     },
     {
       "name": "Keep unsent messages",
-      "description": "Keeps messages that were unsent in 1:1 and group chats on your device instead of destroying them, and shows the usual \"unsent a message\" notice directly below the message it kept. Doesn't apply to OpenChat.",
+      "description": "Keeps messages that were unsent in 1:1 and group chats on your device instead of destroying them, and shows the usual \"unsent a message\" notice directly below the message it kept. Doesn't apply to OpenChat. Can be turned off again from the LINE Patches settings screen.",
       "default": true,
-      "dependencies": [],
+      "dependencies": [
+        "BytecodePatch"
+      ],
       "compatiblePackages": [
         {
           "packageName": "jp.naver.line.android",
@@ -474,9 +506,11 @@
     },
     {
       "name": "Open links in external browser",
-      "description": "Opens tapped web links (http/https) in your default browser instead of LINE's in-app browser. LIFF mini-apps and LINE deep links are unaffected.",
+      "description": "Opens tapped web links (http/https) in your default browser instead of LINE's in-app browser. LIFF mini-apps and LINE deep links are unaffected. Can be turned off again from the LINE Patches settings screen.",
       "default": true,
-      "dependencies": [],
+      "dependencies": [
+        "BytecodePatch"
+      ],
       "compatiblePackages": [
         {
           "packageName": "jp.naver.line.android",
@@ -500,9 +534,11 @@
     },
     {
       "name": "Redirect LINE Pay",
-      "description": "Forwards LINE Pay flows to the standalone LINE Pay app instead of running them in-app, so the device-integrity check that fails on a re-signed build never runs. Messaging is unaffected.",
+      "description": "Forwards LINE Pay flows to the standalone LINE Pay app instead of running them in-app, so the device-integrity check that fails on a re-signed build never runs. Messaging is unaffected. Can be turned off again from the LINE Patches settings screen.",
       "default": true,
-      "dependencies": [],
+      "dependencies": [
+        "BytecodePatch"
+      ],
       "compatiblePackages": [
         {
           "packageName": "jp.naver.line.android",
@@ -526,9 +562,11 @@
     },
     {
       "name": "Remove banner ads",
-      "description": "Stops LINE from loading Smart Channel banner ads (neutralizes the getBanners and getPrefetchableBanners responses).",
+      "description": "Stops LINE from loading Smart Channel banner ads (neutralizes the getBanners and getPrefetchableBanners responses). Can be turned off again from the LINE Patches settings screen.",
       "default": true,
-      "dependencies": [],
+      "dependencies": [
+        "BytecodePatch"
+      ],
       "compatiblePackages": [
         {
           "packageName": "jp.naver.line.android",

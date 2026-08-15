@@ -45,6 +45,117 @@ The patching model is: **fingerprint → locate method → inject smali → opti
 
 **Compatibility** (`app/andrewliang/patches/shared/Constants.kt`) — `Compatibility` objects declare target `packageName`, app name, `apkFileType`, icon color, and `AppTarget` version list. `version = null` means "any/latest" (often `isExperimental = true`); always pin at least one confirmed-working version.
 
+### Runtime settings (in-app toggles)
+
+Patches whose behaviour used to be baked in ("always hide") now ask the extension at runtime, so a
+user can switch one off without re-patching. Three pieces:
+
+- **`extensions/…/Settings.java`** — a `Key` enum (key + title + summary) over a private
+  `SharedPreferences` file. `isEnabled(String)` is the entry point for injected smali. Every default
+  is `true`, and an uninitialized store reports the default, so a patch that cannot reach its
+  setting behaves like the old unconditional bytecode rather than silently un-patching the app.
+- **`SettingsInitProvider`** — a `ContentProvider` declared in LINE's manifest. Android instantiates
+  providers *before* `Application.onCreate`, which is how `Settings` gets a `Context` with **no
+  bytecode hook and no fingerprint** — deliberately, since LINE's Application class is obfuscated and
+  an anchor there would be one more thing to re-derive on a version bump.
+- **`SettingsActivity`** — opened from the **long-press shortcut on LINE's own icon**, not from a row
+  inside LINE's settings. LINE builds that list from obfuscated declarative Kotlin whose rows are
+  region-dependent (`l15.c` / `px4.b0`, see `docs/line-patch-map.md`), so a row injection would break
+  per version. The layout is built in code because only the extension's **dex** is merged — it cannot
+  reference a resource it declares itself, so framework resources (`@android:style/…`) are the only
+  ones the manifest entry may name. Three device-confirmed constraints on it:
+  - **Never give it a `MAIN`/`LAUNCHER` filter.** A second launcher activity makes the *package's*
+    launch intent ambiguous, and `getLaunchIntentForPackage` — what a home-screen icon resolves
+    through — then lands on the system's `ResolverActivity`. Device-confirmed: tapping LINE stopped
+    opening LINE, and `cmd package resolve-activity <pkg>` returned
+    `android/com.android.internal.app.ResolverActivity` instead of `.activity.SplashActivity`. Note
+    `pm disable-user` cannot undo this from adb (shell may not change another app's component
+    state), so the only way out is reinstalling a fixed build. The activity stays `exported="true"`
+    with **no** filter, which is what lets the shortcut and `adb shell am start` reach it.
+  - **Append to the target's existing shortcuts resource; never repoint the meta-data.** Android
+    honours exactly one `android.app.shortcuts` resource per activity, and LINE already declares one
+    (`res/xml/shortcuts.xml`, holding its `share-target`). Read the reference off the launcher
+    activity's meta-data and add a `<shortcut>` to that file. A shortcut's `shortcutShortLabel` must
+    be a **resource reference** — a literal string is rejected and the shortcut silently vanishes —
+    so the label is added to the target's `res/values/strings.xml`.
+  - **`NoActionBar` + own header + own inset handling.** LINE targets a recent SDK, so the window is
+    laid out edge to edge: with an action-bar theme the content frame still started at y=0 and the
+    bar floated over the first row, while the last row sat under the navigation bar. Owning the
+    header removes the negotiation. Apply `systemBars()` insets as padding **and call
+    `requestApplyInsets()`** — insets are dispatched at attach, which can precede a listener
+    registered in `onCreate`.
+  - **Write settings with `commit()`, not `apply()`.** `apply()` writes on a background thread, and
+    swiping LINE out of Recents kills the process before it lands — device-confirmed, the toggle
+    silently reverted. Settings are written once per tap, so the blocking write costs nothing.
+
+`morpheSettingsPatch` (nameless, `patches/…/line/settings/`) bundles the extension and the manifest
+edits; every toggleable patch `dependsOn` it. Keys live twice — `Settings.Key` (Java) and
+`SettingKeys` (Kotlin) — and a mismatch compiles fine and shows up as a switch that does nothing.
+
+Three ways to read a setting, in order of preference:
+
+1. **Push the decision into the extension** and inject a branchless `invoke-static`. Best where the
+   patch already calls an extension (`HomeModules.shouldHide`), where it only sets a value
+   (`AdViews.hideSelf` replaced an in-block label *and* a `.locals 0` register workaround), or where
+   a value can be filtered through the extension — `Gates.premiumMarketAvailable(Z)Z` and
+   `KeepUnsentMessages.applyUnsend` take what LINE computed and hand it back untouched when the
+   toggle is off. **A one-argument filter needs no register at all**: the result goes back into the
+   register the value came from. That is the only option at some sites — `e13.a.d()` is
+   `.registers 1`, its single register is `this` and it is read before it is written — and the fix
+   for any site where every register is live across the injection point (`wi1.j4.<init>`).
+2. **`MutableMethod.addSettingGate`** when the patch has to skip code — an early `return`, or
+   overwriting a value LINE just computed. It finds a free register, calls `isEnabled`, and binds
+   the toggle-off branch to the real instruction at the injection index via `ExternalLabel`.
+   Parameter registers are excluded by default so the injected block may refer to `pN`. Uses
+   `invoke-static/range` so a method whose free registers are all above v15 still assembles.
+   **Prefer injecting *after* the instruction you used to replace**, leaving LINE's own value in
+   place and overwriting it only when the toggle is on — that is what makes `hideevents`,
+   `hidepremiumunsend` and the calendar patches reversible without touching the original code.
+3. **`MutableMethod.addSettingSkip`** for patches that used to `removeInstructions`. LINE appends
+   navigation tabs and header buttons as a `sget-object` of the entry's enum plus an `add(...)`
+   call; skipping that pair is the reversible form of deleting it. Its register rules differ from
+   the gate's on purpose, and both differences are load-bearing:
+   - **Search from the *resume* index, not the injection index.** The gate's write has to survive
+     the jump, and what the skipped instructions do to a register says nothing about the path that
+     skips them.
+   - **Exclude only the block's live-in registers** (used before the block writes them), and **do
+     not exclude parameter registers** — the injected block is empty, so nothing names `pN`.
+     Excluding either more broadly makes the search fail on real LINE methods: `wy7.b.a` reuses the
+     `this` register as the per-entry scratch in its NEWS branches, and it is the only candidate
+     there.
+
+The register search is `patches/…/util/FreeRegisterProvider.kt`, a **vendored copy** from
+`morphe-patches-library` (this bundle only depends on `morphe-patcher` and `smali`). Its GPLv3
+Section 7 notice block must be preserved. Two things about it, both device-relevant:
+
+- **It carries an upstream off-by-one, fixed in our copy.** `getBranchTargetInstructionIndex`
+  asserted `index > 0`, so a method whose *first* instruction is a branch died with
+  "Invalid index: 0" when searching from index 0. `offsetArray[0]` is a valid address; the bound is
+  `>= 0`. Re-check this when re-syncing from upstream.
+- **`addSettingGate(excludeParameterRegisters = false)` is not an optimisation, it is the only
+  option on `.locals 0` methods.** LINE's attach-menu availability predicates (`hg1.h.j`,
+  `hg1.k.j`, `hg1.d.f`) have *no* locals — every register is a parameter — which is exactly why the
+  old unconditional patches could write `const/4 p0, 0x0; return p0`. The gate still works there
+  because LINE overwrites one of those parameters (`iget`/`const/4`) before ever reading it, so the
+  search finds it free. Only pass `false` when the injected block names no `pN` itself.
+
+**A free register is about the injection point, not the method's size.** `g38.b0.invoke` has
+`.registers 31` and still has none at the "keep unsent" site, because that site is immediately
+before a conditional branch and nothing is written-before-read on *both* paths. When that happens,
+do not hunt for a scratch register — **pass the registers the site already holds to one extension
+method and let it do the work** (`KeepUnsentMessages.applyUnsend(Object, Z, J)Z` takes LINE's
+transaction object, the guard, and the message id, and returns the new guard). Reflecting on the
+field's *type* inside the extension is obfuscation-proof where a hardcoded `iget` is not; keep the
+patch-time field lookup anyway, as the proof that the register holds what you think it does.
+
+**Verify without a device before verifying with one.** `work/DexVerify.java` (compile against the
+`morphe-desktop` jar, which bundles dexlib2) has two modes: `sweep <apk|dex>` decodes every method
+and checks that each branch target, try range and handler address lands on an instruction boundary —
+the whole patched APK, 637k methods, in ~2 seconds — and `dump <apk|dex> <class> [method]` prints
+instructions with their registers, which is how an injection site's free registers are established
+in the first place. Apply with `--continue-on-error` to collect every patch failure in one run
+instead of one per round.
+
 ### Patcher API notes (hard-won)
 
 - **Finding instruction indices:** there is no `indexOfFirstInstructionOrThrow` (that's ReVanced). Use `fingerprint.instructionMatches[i].index` — one match per instruction `filter`, in program order — or `instructionMatchesOrNull` for best-effort. `.method` and `.instructionMatches` are context-receiver accessors usable inside `execute { }`.

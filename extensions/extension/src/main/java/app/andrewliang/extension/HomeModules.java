@@ -30,6 +30,8 @@ public final class HomeModules {
 
     /** @return true if a Home module of this type should be hidden. */
     public static boolean shouldHide(String type) {
-        return type != null && HIDDEN.contains(type);
+        return type != null
+                && Settings.isEnabled(Settings.Key.HIDE_HOME_MODULES)
+                && HIDDEN.contains(type);
     }
 }

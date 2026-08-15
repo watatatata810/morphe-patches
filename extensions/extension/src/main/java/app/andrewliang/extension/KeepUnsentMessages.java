@@ -3,6 +3,8 @@ package app.andrewliang.extension;
 import android.database.sqlite.SQLiteDatabase;
 import android.util.Log;
 
+import java.lang.reflect.Field;
+
 /**
  * Helper for the "Keep unsent messages" patch.
  *
@@ -92,16 +94,66 @@ public final class KeepUnsentMessages {
                     + " LIMIT 1";
 
     /**
-     * Best-effort: add the "unsent a message" notice under the message we just kept.
+     * Applies the patch's whole decision for one incoming unsend, and reports what LINE's
+     * "is this row already an unsend tombstone?" guard should say.
      *
-     * @param db        the open chat database, inside LINE's own unsend transaction.
-     * @param messageId the unsent message's id. The caller reads whichever of the row's two long
-     *                  ids is already loaded at the patch site, so this may be either the local
-     *                  {@code chat_history.id} or the {@code server_id}; the statement matches on
-     *                  either. Local ids are small and server ids are large, so the two id spaces
-     *                  do not realistically overlap, and {@code LIMIT 1} bounds it regardless.
+     * <p>This is a single call taking registers the patch site already holds, because the
+     * injection point — between the guard's {@code move-result} and the {@code if-eqz} that reads
+     * it — has <b>no free register</b>, even though the method has 31 of them: it sits immediately
+     * before a branch, and no register is written-before-read on both paths. So the database
+     * cannot be loaded into a scratch register with an {@code iget-object} the way the rest of the
+     * patch's anchors are read; the transaction object is passed instead and its database field
+     * found here.
+     *
+     * <p>Reflecting on the field <b>type</b> rather than its name is what keeps that safe across
+     * versions — {@code g38.f3} and its field names are obfuscated and drift, while
+     * {@code SQLiteDatabase} does not. The patch still proves at apply time that the class has such
+     * a field, so a version where this stops holding fails loudly there rather than silently here.
+     *
+     * @param transaction   LINE's transaction object, holding the open chat database.
+     * @param originalGuard what {@code i38.c.h()} returned for this row.
+     * @param messageId     the unsent message's id. The caller reads whichever of the row's two
+     *                      long ids is already loaded at the patch site, so this may be either the
+     *                      local {@code chat_history.id} or the {@code server_id}; the statement
+     *                      matches on either. Local ids are small and server ids are large, so the
+     *                      two id spaces do not realistically overlap, and {@code LIMIT 1} bounds
+     *                      it regardless.
+     * @return whether LINE should skip the destructive unsend block. Always true while the setting
+     *         is on; otherwise the guard's own answer, so the unsend applies as on a stock build.
      */
-    public static void insertPlaceholder(SQLiteDatabase db, long messageId) {
+    public static boolean applyUnsend(Object transaction, boolean originalGuard, long messageId) {
+        if (!Settings.isEnabled(Settings.Key.KEEP_UNSENT_MESSAGES)) {
+            return originalGuard;
+        }
+
+        insertPlaceholder(databaseOf(transaction), messageId);
+        return true;
+    }
+
+    /** @return the first {@link SQLiteDatabase} held by {@code transaction}, or null. */
+    private static SQLiteDatabase databaseOf(Object transaction) {
+        if (transaction == null) return null;
+
+        for (Class<?> type = transaction.getClass(); type != null; type = type.getSuperclass()) {
+            for (Field field : type.getDeclaredFields()) {
+                if (field.getType() != SQLiteDatabase.class) continue;
+                try {
+                    field.setAccessible(true);
+                    SQLiteDatabase database = (SQLiteDatabase) field.get(transaction);
+                    if (database != null) return database;
+                } catch (Throwable t) {
+                    // Try the next candidate rather than giving up on the notice entirely.
+                }
+            }
+        }
+
+        Log.w(TAG, "No database on " + transaction.getClass().getName()
+                + "; keeping the message without a notice.");
+        return null;
+    }
+
+    /** Best-effort: add the "unsent a message" notice under the message we just kept. */
+    private static void insertPlaceholder(SQLiteDatabase db, long messageId) {
         if (db == null) return;
         try {
             db.execSQL(INSERT_PLACEHOLDER, new Object[] {

@@ -1,5 +1,6 @@
 package app.andrewliang.patches.line.keepunsent
 
+import app.andrewliang.patches.line.settings.morpheSettingsPatch
 import app.andrewliang.patches.shared.Constants.COMPATIBILITY_LINE
 import app.morphe.patcher.extensions.InstructionExtensions.addInstructions
 import app.morphe.patcher.patch.PatchException
@@ -15,7 +16,7 @@ import com.android.tools.smali.dexlib2.iface.reference.TypeReference
 
 private const val SQLITE_DATABASE = "Landroid/database/sqlite/SQLiteDatabase;"
 private const val EXTENSION = "Lapp/andrewliang/extension/KeepUnsentMessages;"
-private const val INSERT_PLACEHOLDER = "insertPlaceholder(${SQLITE_DATABASE}J)V"
+private const val APPLY_UNSEND = "applyUnsend(Ljava/lang/Object;ZJ)Z"
 
 /** Highest register addressable by the 4-bit operands of `invoke-*` (35c) and `iget-*` (22c). */
 private const val MAX_NIBBLE_REGISTER = 15
@@ -25,12 +26,15 @@ val keepUnsentMessagesPatch = bytecodePatch(
     name = "Keep unsent messages",
     description = "Keeps messages that were unsent in 1:1 and group chats on your device " +
         "instead of destroying them, and shows the usual \"unsent a message\" notice directly " +
-        "below the message it kept. Doesn't apply to OpenChat.",
+        "below the message it kept. Doesn't apply to OpenChat. Can be turned off again from the " +
+        "LINE Patches settings screen.",
     default = true,
 ) {
     compatibleWith(COMPATIBILITY_LINE)
 
     extendWith("extensions/extension.mpe")
+
+    dependsOn(morpheSettingsPatch)
 
     // An incoming unsend is applied by the g38.b0 lambda, which rewrites chat_history.type to
     // i38.c.UNSENT and NULLs content/parameter/attachement_type/locations, then drops the row from
@@ -42,11 +46,14 @@ val keepUnsentMessagesPatch = bytecodePatch(
     //     if-eqz v6, :cond_1                   # no  -> run the destructive block
     //     goto/16 :goto_c                      # yes -> skip it all, return the row unchanged
     //
-    // Forcing the guard register non-zero always takes the "skip" branch, so the message survives
-    // intact — text, media, reactions and its search-index entry. LINE never learns it was
-    // recalled, so nothing marks it: we insert our own i38.c.UNSENT (dbValue 27) row just below
-    // it, which LINE's stock renderer draws as "<name> unsent a message." with correct sender
-    // naming and localisation. See the extension for the INSERT.
+    // Replacing the guard register with the extension's answer decides per unsend whether to take
+    // the "skip" branch. While the setting is on it always does, so the message survives intact —
+    // text, media, reactions and its search-index entry. LINE never learns it was recalled, so
+    // nothing marks it: we insert our own i38.c.UNSENT (dbValue 27) row just below it, which
+    // LINE's stock renderer draws as "<name> unsent a message." with correct sender naming and
+    // localisation. See the extension for the INSERT. While the setting is off the extension hands
+    // the guard's own value straight back and the unsend is applied exactly as on a stock build —
+    // a return value rather than a branch, so the method's layout is untouched either way.
     //
     // The guard is located by instruction shape rather than by name: i38.c and its h() are
     // obfuscated and drift. The SQLiteDatabase field read (g38.f3.b) is likewise taken from the
@@ -122,13 +129,16 @@ val keepUnsentMessagesPatch = bytecodePatch(
             }
             reference to holderRegister
         }
-        val (databaseField, databaseHolderRegister) = databaseRead
+        // Only the register is injected; the field itself is read reflectively at runtime (see the
+        // injection below). Resolving it here is still what proves the register holds a
+        // transaction object carrying a database.
+        val (_, databaseHolderRegister) = databaseRead
             ?: throw PatchException("unsend: SQLiteDatabase field read not found in ${method.definingClass}")
 
-        // v0-v15 only for iget-object (22c) and invoke-static (35c); referencing v16+ there is
-        // silently mis-assembled. On 26.11.0 these are v1/v6/v7, but the method is `.locals 29`,
-        // so a future version could spill them. Fail loudly rather than keeping messages with no
-        // notice: an unmarked kept message is indistinguishable from one that was never unsent.
+        // v0-v15 only for invoke-static (35c); referencing v16+ there is silently mis-assembled.
+        // On 26.11.0 these are v1/v6/v7, but the method is `.registers 31`, so a future version
+        // could spill them. Fail loudly rather than keeping messages with no notice: an unmarked
+        // kept message is indistinguishable from one that was never unsent.
         val highestRegister = maxOf(
             guardRegister,
             databaseHolderRegister,
@@ -142,14 +152,21 @@ val keepUnsentMessagesPatch = bytecodePatch(
             )
         }
 
-        // The guard register is dead here (the skipped block reassigns it immediately), so it is
-        // free to borrow for the database reference before being forced to 1.
+        // Injected between the guard's `move-result` and the `if-eqz` that reads it, so the guard
+        // register still holds LINE's own answer when it is handed to the extension, and the
+        // notice is written before the branch that skips the block it belongs to.
+        //
+        // One call taking only registers that are already live, because this point has NO free
+        // register despite the method's 31: it sits immediately before a branch, and nothing is
+        // written-before-read on both paths. So the database is not loaded into a scratch register
+        // here — the transaction object goes to the extension, which pulls the database off it by
+        // type. The field lookup above stays: it is what proves `v$databaseHolderRegister` really
+        // holds a transaction with a database, and fails the patch loudly if that stops being true.
         method.addInstructions(
             guardIndex + 2,
             """
-                iget-object v$guardRegister, v$databaseHolderRegister, ${databaseField.definingClass}->${databaseField.name}:${databaseField.type}
-                invoke-static {v$guardRegister, v$messageIdRegister, v${messageIdRegister + 1}}, $EXTENSION->$INSERT_PLACEHOLDER
-                const/16 v$guardRegister, 0x1
+                invoke-static {v$databaseHolderRegister, v$guardRegister, v$messageIdRegister, v${messageIdRegister + 1}}, $EXTENSION->$APPLY_UNSEND
+                move-result v$guardRegister
             """,
         )
     }

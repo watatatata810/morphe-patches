@@ -134,3 +134,8 @@ node_modules/
 # Ignore IDEA files
 .idea/
 local.properties
+
+# Claude Code scratch space and local-only settings
+.claude/tmp/
+.claude/memory/
+.claude/settings.local.json

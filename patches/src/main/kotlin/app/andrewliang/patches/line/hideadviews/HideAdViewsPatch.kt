@@ -1,49 +1,41 @@
 package app.andrewliang.patches.line.hideadviews
 
+import app.andrewliang.patches.line.settings.morpheSettingsPatch
 import app.andrewliang.patches.shared.Constants.COMPATIBILITY_LINE
 import app.morphe.patcher.extensions.InstructionExtensions.addInstructions
 import app.morphe.patcher.patch.bytecodePatch
 
+private const val EXTENSION = "Lapp/andrewliang/extension/AdViews;"
+
 // Hide the Smart Channel banner host (p1 = the FrameLayout the controller populates).
 private const val HIDE_HOST = """
-    const/16 v0, 0x8
-    invoke-virtual {p1, v0}, Landroid/view/View;->setVisibility(I)V
+    invoke-static/range {p1 .. p1}, $EXTENSION->hideHost(Landroid/view/View;)V
 """
 
-// Collapse the receiver ad view itself: zero its height + GONE. These ad classes never call
-// setVisibility on themselves, so this sticks (no ancestor walk needed).
+// Collapse the receiver ad view itself. The extension zeroes the height and hides the view, and
+// tolerates the null layout params an ad view still has while it is being constructed.
 private const val HIDE_SELF = """
-    invoke-virtual {p0}, Landroid/view/View;->getLayoutParams()Landroid/view/ViewGroup${'$'}LayoutParams;
-    move-result-object v0
-    if-eqz v0, :novp
-    const/4 v1, 0x0
-    iput v1, v0, Landroid/view/ViewGroup${'$'}LayoutParams;->height:I
-    invoke-virtual {p0, v0}, Landroid/view/View;->setLayoutParams(Landroid/view/ViewGroup${'$'}LayoutParams;)V
-    :novp
-    const/16 v0, 0x8
-    invoke-virtual {p0, v0}, Landroid/view/View;->setVisibility(I)V
-"""
-
-// AdManager wrappers hide self after super <init>. fl5/e is `.locals 0`, so it reuses the dead
-// defStyleAttr param p3 instead of v0.
-private const val HIDE_SELF_CTOR_V0 = """
-    const/16 v0, 0x8
-    invoke-virtual {p0, v0}, Landroid/view/View;->setVisibility(I)V
-"""
-private const val HIDE_SELF_CTOR_P3 = """
-    const/16 p3, 0x8
-    invoke-virtual {p0, p3}, Landroid/view/View;->setVisibility(I)V
+    invoke-static/range {p0 .. p0}, $EXTENSION->hideSelf(Landroid/view/View;)V
 """
 
 @Suppress("unused")
 val hideAdViewsPatch = bytecodePatch(
     name = "Hide ad views",
     description = "Hides LINE display ad views — the LINE Ads SDK containers across the app, " +
-        "the chat-list Smart Channel banner, and Google AdManager ads.",
+        "the chat-list Smart Channel banner, and Google AdManager ads. " +
+        "Can be turned off again from the LINE Patches settings screen.",
     default = true,
 ) {
     compatibleWith(COMPATIBILITY_LINE)
 
+    dependsOn(morpheSettingsPatch)
+
+    // Each site is one branchless invoke-static on a register it already holds, with the setting
+    // check and the hiding itself living in the extension. That is what lets the same injection
+    // serve both states, and it also removes the two register hazards the inline version carried:
+    // an in-block label for the null-layout-params case, and a `.locals 0` wrapper that had to
+    // borrow a dead parameter register because it had no free one. The /range form keeps the
+    // register operand 16-bit, so a method whose p0 sits above v15 assembles correctly too.
     execute {
         // Chat-list Smart Channel banner: hide its host container at controller construction.
         SmartChannelControllerFingerprint.method.addInstructions(0, HIDE_HOST)
@@ -54,20 +46,22 @@ val hideAdViewsPatch = bytecodePatch(
 
         // Google AdManager wrappers — BEST-EFFORT. Obfuscated names drift across versions,
         // so skip silently if not found; can never break the robust hiding above. Inject
-        // setVisibility(GONE) on self right AFTER the super <init> call.
+        // on self right AFTER the super <init> call.
         val adManagerWrappers = listOf(
-            AdManagerBannerChatroomFingerprint to HIDE_SELF_CTOR_V0,
-            AdManagerNativeChatroomFingerprint to HIDE_SELF_CTOR_V0,
-            AdManagerBannerGeneralFingerprint to HIDE_SELF_CTOR_P3, // fl5/e: .locals 0
-            AdManagerNativeGeneralFingerprint to HIDE_SELF_CTOR_V0,
-            AdManagerBannerMinorRegionFingerprint to HIDE_SELF_CTOR_V0,
-            AdManagerNativeMinorRegionFingerprint to HIDE_SELF_CTOR_V0,
+            AdManagerBannerChatroomFingerprint,
+            AdManagerNativeChatroomFingerprint,
+            AdManagerBannerGeneralFingerprint,
+            AdManagerNativeGeneralFingerprint,
+            AdManagerBannerMinorRegionFingerprint,
+            AdManagerNativeMinorRegionFingerprint,
         )
-        adManagerWrappers.forEach { (fingerprint, hideSmali) ->
+        adManagerWrappers.forEach { fingerprint ->
             val method = fingerprint.methodOrNull ?: return@forEach
-            val afterSuperIndex = (fingerprint.instructionMatchesOrNull?.firstOrNull()?.index
-                ?: return@forEach) + 1
-            method.addInstructions(afterSuperIndex, hideSmali)
+            val afterSuperIndex = (
+                fingerprint.instructionMatchesOrNull?.firstOrNull()?.index
+                    ?: return@forEach
+                ) + 1
+            method.addInstructions(afterSuperIndex, HIDE_SELF)
         }
     }
 }

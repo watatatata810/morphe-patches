@@ -1,5 +1,6 @@
 package app.andrewliang.patches.line.hidehomemodules
 
+import app.andrewliang.patches.line.settings.morpheSettingsPatch
 import app.andrewliang.patches.shared.Constants.COMPATIBILITY_LINE
 import app.morphe.patcher.extensions.InstructionExtensions.addInstructions
 import app.morphe.patcher.patch.bytecodePatch
@@ -17,12 +18,15 @@ private const val FILTER_DESC = "(Ljava/util/List;)Ljava/util/List;"
 val hideHomeModulesPatch = bytecodePatch(
     name = "Hide Home modules",
     description = "Hides Home-tab clutter modules: the recommended stickers/content section, " +
-        "the real-time hot-topics (即時夯話題) block, and Home feed ads.",
+        "the real-time hot-topics (即時夯話題) block, and Home feed ads. " +
+        "Can be turned off again from the LINE Patches settings screen.",
     default = true,
 ) {
     compatibleWith(COMPATIBILITY_LINE)
 
     extendWith("extensions/extension.mpe")
+
+    dependsOn(morpheSettingsPatch)
 
     // The rendered Home feed is a List<m52.z> (each z.e a typed m52.a0 module) stored as the
     // first ctor arg (field `a`) of the Compose state x72.h$a. Filter that list to drop
