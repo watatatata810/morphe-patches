@@ -821,19 +821,55 @@ APK names Play Services and there is no string to redirect; MicroG-RE implements
 patchable — see the two-path section above.
 
 **Show who put 「既読」 in a group (per-reader read receipts) — feasible FORWARD-ONLY, not shipped.**
-*Not a true dead end* (mis-filed here for the trail). At rest the client holds only aggregate
-**counts** — bulk `getMessageReadRange` (LegacyTalkService `LegacyTalkServiceClientImpl$a.b`, args
-`cb8.wk` / result `cb8.xk`) returns `List<TMessageReadRange{chatId,
-entries:[TMessageReadRangeEntry{startMessageId, endMessageId, readCount}]}>`, and local storage is
-count/range only (`f88.a` = table `chat_read_count_meta_data`, `f88.h` = `read_message_range`, plus
-the `read_message_count` column; the manager is literally `ReadCountManager`); no per-member read
-table, no `getReadMembers`/`readerMid` API. **But** each *live* `NOTIFIED_READ_MESSAGE` operation
-(OpType enum `cb8.ce`) carries the reader's identity: `Operation.toString()` emits
-`type:NOTIFIED_READ_MESSAGE … param2:<readerMid> param3:<messageServerId>` (the `, param2:` /
-`, param3:` labels and the enum name are present in the 26.11.0 dex). So "who read" can be
-reconstructed by capturing the op stream and accumulating it yourself — **forward-only**, no way to
-backfill reads that happened before capture starts. (1:1 read receipts are inherently per-person and
-need none of this.)
+*Not a true dead end* (mis-filed here for the trail). **The client holds per-member read state at
+rest, and it is not scoped to a sender** — an earlier reading of this ("aggregate counts only") was
+wrong and is corrected here.
+
+LINE keeps read state in its own database, `read_notification` (the `READ_COUNT` entry of the
+registry in `o58.e`), created by `f88.c.a`:
+
+- `read_message_range` (`f88.h`) — `chat_id`, **`member_id`**, `history_id`, `next_history_id`,
+  `from_msg_id`, `to_msg_id`, `operation_created_time`; index `idx_chat_member_history`. One row per
+  (chat, member) read range.
+- `chat_read_count_meta_data` (`f88.a`) — `chat_id`, `synchronized_time`; a sync watermark only.
+
+Two writers feed it, and **both are per-member**:
+
+- the live `NOTIFIED_READ_MESSAGE` op — `e98.e2.b` → `c88.b.c(revision, chatId, memberId, msgId,
+  TALK_OPERATION)`;
+- the **bulk sync** `getMessageReadRange` (`c88.e.b` → `TalkServiceClient.C2(chatIds, syncReason)`).
+  Its response is `TMessageReadRange{chatId (a), ranges (b): Map<memberMid, List<TMessageReadRangeEntry>>}`
+  and each entry is `{startMessageId, endMessageId, startTime, endTime}` (`cb8.rh` / `cb8.sh`). The
+  map key is the reader's mid, so **the server backfills who-read retroactively** — this is not a
+  forward-only capture problem.
+
+Reads are answered by `c88.c.a(chatId, from, to)` → `f88.g.c`/`.d` (`SELECT … WHERE chat_id=? AND
+from_msg_id>=? AND from_msg_id<?`, **no member or sender filter**) → `f88.b`, whose `a(long
+messageId)` counts the members whose range covers that id. Equivalent SQL for a single message:
+
+```sql
+SELECT DISTINCT member_id FROM read_message_range
+ WHERE chat_id=? AND from_msg_id<=<msgId> AND to_msg_id>=<msgId>
+```
+
+**Why LINE shows no count on incoming rows: the view is missing, not the data.**
+`ke1.e.onBindViewHolder` calls `c88.a.a(serverId)` for **every** row and sets
+`show = (count > 0)` — there is no "is this mine" test. The row controller binds it only when the
+view exists: `oj1.d.<init>` does `findViewById(0x7f0b0870 /* chat_ui_row_read_count */)` and creates
+its `oj1.j` binder solely `if (… != null)`. That id appears **only in send layouts**
+(`chat_ui_row_layout_send_vertical`, `chat_ui_row_send_edited_and_read_count`,
+`chat_ui_row_send_msg_carousel_image_viewer`); the receive containers
+(`chat_ui_row_layout_receive_vertical`, and `chat_ui_row_layout_receive_horizontal_metadata` which
+`chat_ui_row_layout_receive_horizontal` includes) carry the timestamp (`0x7f0b08a6`) but no read
+count. Adding a `TextView` with that id to the two receive layouts is therefore enough to make LINE
+render the count itself — see `Show read count on received messages` below.
+
+**Finding which layouts reference a resource id needs no apktool.** Read `res/**/*.xml` straight out
+of the APK with `zipfile` and search each for the id as little-endian bytes
+(`struct.pack('<I', 0x7f0b0870)`); `work/axml.py` decodes the binary XML tree and `work/arsc.py`
+resolves ids to `@type/name` out of `resources.arsc`. Both are small and self-contained.
+
+(1:1 read receipts are inherently per-person and need none of this.)
 
 Reference implementation: **LIME**'s `ReadChecker` (github.com/Chipppppppppp/LIME, **MIT**, Xposed).
 It `hookAllMethods` on the op-processing coroutine `mh1.b.invokeSuspend` (obfuscated), and on a
@@ -870,8 +906,9 @@ time and re-derived on a version bump. (Tools: `work/StringRefs.java` `fieldrefs
 Build shape: inject at `e98.e2.b` (index 0) → extension parses the op → reads LINE's `naver_line` /
 `contact` DBs → accumulates in an extension-owned SQLite → inject at `ChatHistoryActivity.onCreate`
 → extension makes each per-message 「既読 N」 count tappable, opening the read report (and
-`ChatHistoryRequest.getChatId` for the current chat id). It stays forward-only, and it logs
-who-read to on-device storage.
+`ChatHistoryRequest.getChatId` for the current chat id). The op capture is a *supplement*: the
+extension's primary source is LINE's own per-member `read_message_range`, which the server backfills,
+so the feature is not forward-only. Everything is logged to on-device storage only.
 
 **Status: implemented (opt-in), DEVICE-VERIFIED working (26.11.0, Galaxy S24 Ultra / Android).**
 Shipped as the `Group read checker` patch (`patches/…/line/readreceipts/`, extension
@@ -883,6 +920,93 @@ that defaults off, so the injections ship dormant). Device-confirmed end to end:
 captured (`param2` reader mid / `param3` message id from `Operation.toString()`), the reader resolves
 to a display name from `contact`.`contacts.profile_name`, message text/time come from
 `naver_line`.`chat_history`, and tapping 「既読 N」 opens the per-message reader dialog.
+
+**Readers now come from LINE's own table first.** `ReadReceipts.collectReaders` unions
+`read_notification`.`read_message_range` (the query above, on the earliest folded message id) with
+the patch's own `read_marks` watermarks, then drops the message's sender — `chat_history.from_mid`,
+selected with a fallback projection so a schema without that column degrades to listing the sender
+rather than failing.
+
+**`Show read count on received messages`** (`IncomingReadCountPatch.kt`) is the display half: a pure
+`resourcePatch` that appends a `TextView` with `@id/chat_ui_row_read_count` to
+`chat_ui_row_layout_receive_horizontal_metadata` (a vertical `LinearLayout` — inserted directly above
+the timestamp, matching the send column's order) and to `chat_ui_row_layout_receive_vertical` (a
+`ConstraintLayout` — `Right_toLeftOf` / `Top_toTopOf` / `Bottom_toBottomOf` the timestamp, so it
+reads 「既読 3  12:34」). Both carry `@style/chat_ui_text_chatroom_message_metadata`, the style LINE's
+own timestamp and read count use. The `app:` prefix is read off the document's `res-auto` xmlns
+rather than assumed. Verified by applying: the patched APK keeps `chat_ui_row_read_count` at
+`0x7f0b0870` (the literal `oj1.d` looks up) and both receive layouts now reference it.
+
+It is the one patch with **`default = false`** — a layout change cannot be gated by the runtime
+settings screen, so opting in has to happen at patch time; deselect the patch to remove the counter.
+
+**LINE's count includes the message's sender — device-confirmed, and it is why the counter is
+group-only.** `ke1.e.onBindViewHolder` picks the label three ways: `@string/square_chat_desc_sent`
+when the provider is `e88.a` (Square/OpenChat, whose `a(long)` is a hardcoded `return 0`),
+`@string/chathistory_message_single_read` (a bare 「既読」, no number) when `k61.c.d().W()` — the
+one-to-one flag — is set, and otherwise `@string/chathistory_message_read_count_format` (「既読 N」).
+Show is `count > 0` in all non-Square cases. On device, incoming **one-to-one** rows rendered the
+bare 「既読」, which can only happen at `count > 0`: the partner's read range covers their own
+message, so **a sender is always counted on their own message**. Consequences, both handled:
+
+- One-to-one incoming counters say nothing (they appear on every message and only mean "the person
+  who wrote this has read it"), so `ReadReceipts.sweep` sets the **tagged** views `GONE` whenever
+  `currentIsGroup` is false. Only tagged views are touched — LINE's own, on send rows, are never
+  hidden. Visibility is re-applied each layout pass rather than removing the view, because LINE
+  re-shows it on every rebind and because `currentIsGroup` can be set after `onCreate`.
+- On an incoming message the readers sheet **swaps the sender for you**. The per-member data has two
+  fixed properties — it never carries *your* read state, and it always carries the *sender's* — so
+  the raw set is the true reader set with exactly one member substituted. Substituting back keeps
+  the total identical (the sheet still agrees with the tapped 「既読 N」) and fixes the names.
+  Device-confirmed in a 3-person group: 「既読 2」 listed the sender and 児玉 where the actual readers
+  were 児玉 and the user. Whether a message is incoming is decided *from the set itself* — the sender
+  appears in it only when the sender is not you — so no knowledge of your own mid is needed and
+  outgoing messages fall through untouched.
+- The corollary is that **the row's number is normally correct** even though its membership is not:
+  it equals `1 (sender) + |readers other than you|`, which is the true reader count exactly when you
+  have read the message — always true of one you are looking at.
+
+**The bulk sync runs once per chat, ever — and that is why counts on other people's messages go
+stale.** `c88.e.a(chatId, syncReason)` guards the fetch:
+
+```
+if (SquareChatUtils.b(chatId)) return null;                  // Square chats are excluded
+long syncTime = f88.e.a /* LruCache */ .get(chatId)
+              ?? SELECT synchronized_time FROM chat_read_count_meta_data WHERE chat_id=?  (else 0)
+const-wide/16 v11, 0x0
+if (syncTime > v11) return null;                             // ← skips forever once set
+return b(db, {chatId}, reason);                              // getMessageReadRange
+```
+
+`c88.e.b` then writes `synchronized_time = now` to the row **and** `put`s it into the same LruCache
+for every chat it synced, so the gate never opens again. From that point only the live
+`NOTIFIED_READ_MESSAGE` operation updates `read_message_range`, and those arrive for reads of *your*
+messages — which is all stock LINE ever needed, since it draws no count on anyone else's. **Device-
+confirmed:** a group showed 既読 9 / 既読 2 on the previous day's incoming messages and nothing on the
+current day's, including one carrying a reaction from another member — a reaction says nothing about
+the reactor's read position.
+
+`incomingReadCountPatch` therefore also rewrites that literal: `ReadRangeSyncGateFingerprint` pins
+the sole `const-wide/16` in the method (anchored between the non-obfuscated `SquareChatUtils.b`
+guard and the `SQLiteDatabase.query`), and it becomes
+`invoke-static ReadReceipts.readRangeSyncCutoff()J` + `move-result-wide` into the *same* register —
+one instruction pair, no register pressure, control flow byte-identical (verified on the patched
+dex). The extension returns `now − 60_000`, turning "synced ever?" into "synced within the last
+minute?"; returning `0` would restore stock behaviour exactly.
+
+**The interval is deliberately not zero.** The gate hangs off `lv7.y.onChatMessageListChanged`,
+which is `@Subscribe(SubscriberType.BACKGROUND)` — so the blocking Thrift call is off the main
+thread, but the event fires on every arriving message and every pagination step, not merely on chat
+open. With no floor, an active group would issue one `getMessageReadRange` per event: a request
+pattern no stock client produces. A minute keeps "open a chat and the counts are current" while
+collapsing the burst around an open into one request. This is the only change in the bundle that
+adds outbound traffic to LINE's servers.
+
+Both patches share `chatHistoryHooksPatch` (nameless) for the `ChatHistoryRequest.getChatId` and
+`ChatHistoryActivity.onCreate` injections, so applying both still injects each hook exactly once
+(verified on the patched dex). `decorate` therefore runs regardless of the toggle — the one-to-one
+suppression has to happen whether or not the read checker is on — and `sweep` returns immediately in
+the common case of a group chat with the toggle off.
 
 **UI = tap the read count → a per-message bottom sheet** (not a floating button; device-verified).
 Everything anchors on non-obfuscated resource ids — re-derive on a version bump with

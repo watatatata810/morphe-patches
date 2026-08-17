@@ -125,9 +125,8 @@ public final class Settings {
         GROUP_READ_CHECKER(
                 "Read receipts", "group_read_checker",
                 "Group read checker",
-                "Record who reads each message in a group (going forward only) and view them "
-                        + "from a button inside the chat. Off by default; read data is stored on "
-                        + "your device.",
+                "Tap the 「既読 N」 count on a message in a group to see who is behind it. Off "
+                        + "by default; read data is stored on your device.",
                 false);
 
         /** Section this setting is listed under. Entries of a category must stay adjacent. */
