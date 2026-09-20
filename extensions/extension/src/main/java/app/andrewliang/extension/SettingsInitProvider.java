@@ -29,6 +29,8 @@ public final class SettingsInitProvider extends ContentProvider {
         ReadReceipts.setContext(getContext());
         // Fallback for the settings row when the tapped row hands over no Fragment.
         SettingsRow.setContext(getContext());
+        // App-background tracking for the per-chat "keep unread" override.
+        UnreadOverride.setContext(getContext());
         return true;
     }
 

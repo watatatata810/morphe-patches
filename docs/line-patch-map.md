@@ -791,6 +791,35 @@ hard-requires do **not** resolve against LINE: `GooglePlayUtilityFingerprint` (n
 `"Google Play Services not available"` match is a constructor in `gl.h`). For LINE neither is
 needed anyway — real Play Services is installed, so the "GMS missing" checks never trigger.
 
+## Keep chats unread — the per-chat chip (temporary override)
+
+The auto-read path is a single chain on 26.11.0. When the chat screen shows an unread message the
+list builds a `y31.b` event (`sv7.g$b.a` / `sv7.g$c.a`: chatId, messageId, …) and the subscriber
+`lv7.t0.onUnreadMessageFound` checks `fl0.b.a(chatId)` ("is this chat in the foreground?") before
+calling the read wrapper `q33.e.b(chatId, messageId)`, which dispatches `q33.e.d(J, String, Z)` —
+local read + `sendChatChecked`. Square/OpenChat takes `lv7.t0.a` instead and is not covered.
+
+LINE itself defers reads: while the lock screen is showing, `lv7.t0` queues the ids it could not read
+(`d: LinkedList` keyed by `e: chatId`) and calls the same wrapper for them in
+`onLockScreenVisibilityChanged`. The chip reuses that idea from the extension side:
+
+- The gate at the head of `q33.e.b` is `UnreadOverride.shouldSkip(this, chatId, messageId)` — the
+  wrapper's own arguments, no new register beyond one for the result. It answers from the global
+  toggle unless the chat has an override, and while skipping remembers `(wrapper instance,
+  messageId)` per chat.
+- The chip (`UnreadOverride.attach`, injected at `ChatHistoryActivity.onCreate`) is shown only while
+  the global toggle is on. Flipping it to "Read mode" calls the remembered wrapper via reflection —
+  the unique `(String, String) -> void` method on its class, the same rule the patch uses to find it
+  — so LINE's own worker does the read and sends the receipt. Device-confirmed: the chat-list badge
+  clears on leaving the room.
+- Reset: `ChatHistoryActivity.onDestroy` (injected) drops all overrides, and so does the app going to
+  the background — tracked with `Application.registerActivityLifecycleCallbacks` from the provider's
+  context (started-activity count reaching zero), so in-app navigation such as opening a photo does
+  not reset it. Overrides live only in memory. The chip re-reads its state in `onActivityResumed`.
+
+Layout anchor for the chip: the top edge of `R.id.chathistory_message_list` (`0x7f0b096a`), which is
+just below LINE's header; the chip sits in `android.R.id.content` at top|end.
+
 ## Settings screen & the "Settings row in LINE settings" patch
 
 LINE's top-level Settings screen is `com.linecorp.line.settings.main.LineUserMainSettingsFragment`
