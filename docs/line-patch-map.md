@@ -166,6 +166,7 @@ row, and the sibling "Hide community button" which targets `OPEN_CHAT`).
 | Hide attach menu extra tools | `line.hideattachmenutools` | all server-driven `hg1.d` services |
 | Redirect LINE Pay | `line.disablepay` | `PayLaunchActivity` / `PayLiffActivity` onCreate (see below) |
 | Keep unsent messages | `line.keepunsent` | `g38.b0.invoke` — the unsend DB write (see below) |
+| Settings row in LINE settings | `line.settings` | `j25.u2.a()` — the main Settings list accessor (see below) |
 
 Each is an independent, `default = true`, user-facing `bytecodePatch` — one feature (or one feature's
 full set of entry points) per patch, matching the bundle's convention (cf. *Hide Wallet tab*,
@@ -789,6 +790,56 @@ hard-requires do **not** resolve against LINE: `GooglePlayUtilityFingerprint` (n
 `MetadataValueReader` string LINE does not ship) and `ServiceCheckFingerprint` (LINE's only
 `"Google Play Services not available"` match is a constructor in `gl.h`). For LINE neither is
 needed anyway — real Play Services is installed, so the "GMS missing" checks never trigger.
+
+## Settings screen & the "Settings row in LINE settings" patch
+
+LINE's top-level Settings screen is `com.linecorp.line.settings.main.LineUserMainSettingsFragment`
+(not obfuscated; base `…settings.base.LineUserSettingItemListFragment`). It renders one **page
+definition** object (`px4.p1` subclass, on 26.11.0 `j25.u2`) whose `<clinit>` builds every row of
+the list into a static `List` (`j25.u2.e`, 57 entries) and whose parameterless `()List` accessor
+(`j25.u2.a()`, a bare `sget-object` + `return-object`) hands it out. Rows are `px4.b0` subclasses
+rendered through a shared registry (`ay4.e.<clinit>`) keyed on the row's layout id (`b0.b`):
+
+| Row class | Constructor (26.11.0) | Rendered by |
+|---|---|---|
+| `px4.i1` | `(String id, int titleRes, Integer, Function2, Function2, …, int defaultsMask)` | navigation row with string-resource title |
+| `px4.v` | `(String id, Integer iconRes, int titleRes, …)` | icon + title row (most of the main list) |
+| `px4.s` | `(int titleRes, Function2, int)` | section header |
+| **`px4.j0`** | **`(String id, Function2 title, String iconCountry, Function1 onClick, px4.t0 target, Function2 enabled)`** | `ux4.y0.K0` — plain text row, icon only for `JP`/`TH`/`TW`, layout `0x7f0e056d` |
+
+`px4.j0` is what LINE uses for its "Melody store" entry, and it is the one row type whose **title is
+a `suspend (Context) -> CharSequence` provider** rather than a resource id — so a patch can build one
+without touching LINE's resource table. `Function1`/`Function2` are Kotlin's function interfaces
+(`vb8.l` / `vb8.p`), which `java.lang.reflect.Proxy` implements. The tap handler receives the hosting
+Fragment (`ux4.e0.onClick` → `b0.h.invoke(fragment)`); `b0.j` (the last `Function2`, LINE's default
+`px4.b0.t` returns `TRUE`) is the show/enable predicate read in `px4.n1$a.emit`. `px4.t0` is the
+navigation-target key (`t0$c(String)` generic, `t0$d(String)` VoIP-scoped, see `ay4.g2.a`).
+
+**The patch** (`settings/SettingsRowPatch.kt`, extension `SettingsRow.java`):
+
+1. `MainSettingsPageFingerprint` — the page `<clinit>` via the **function-reference strings**
+   `"shouldShowAccountCenter"` + `"openChatAndFriendSettings"` (LINE renames the methods but the
+   `kotlin.jvm.internal.o` reflection strings keep the source names; both are unique to this
+   initializer). The accessor is selected by shape.
+2. `StringRowBinderFingerprint` — `ux4.y0.K0` via `Locale.TAIWAN` + `"TH"` + `"JP"` +
+   `ImageView.setImageResource`; its opening `check-cast` names the row class.
+3. The `px4.t0` subclass is read off the row constructor's **own call site**: scan for the
+   `invoke-direct/range` of the 6-arg ctor and take the `new-instance` that feeds its 5th-argument
+   register. LINE has two sites (`l15.c.<clinit>` constructs `t0$c` inline; `ay4.m0.invoke` receives
+   one from `ay4.g2.a`), so the scan must not stop at the first match.
+4. A static helper `morpheSettingsRows()` is added to the page class and the accessor is rewritten
+   to call it; the helper passes the list plus the two `Class` objects to `SettingsRow.append`,
+   which builds the row once (cached — the list is re-read on every refresh and diffed by identity)
+   and returns a copy with it appended.
+
+Device-confirmed (26.11.0): the row renders as the last entry under 「アプリ情報」 and opens
+`SettingsActivity`. Visually it is the Melody-store style — no icon, no chevron, text at the left
+margin — because that is the only row type constructible without a resource id. A `px4.v` row with
+icon and chevron would need a string id in LINE's table (i.e. a `public.xml` pin at patch time).
+
+The patch is **named and separate** from the mandatory `morpheSettingsPatch`: it is the one piece of
+the settings surface that depends on LINE anchors, so a version bump that breaks it fails only this
+patch and the icon long-press shortcut keeps working.
 
 ## Dead ends (investigated, not patchable)
 

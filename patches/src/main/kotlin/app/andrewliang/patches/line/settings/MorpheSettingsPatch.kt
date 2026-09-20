@@ -59,10 +59,11 @@ private val morpheSettingsManifestPatch = resourcePatch {
             val application = document.getElementsByTagName("application").item(0)
             packageName = manifest.getAttribute("package")
 
-            // The settings screen. Reached from the long-press shortcut on LINE's own icon rather
-            // than from a row inside LINE: LINE builds its settings list from obfuscated
-            // declarative Kotlin whose rows differ by region (see docs/line-patch-map.md), so a row
-            // injection would be one more anchor to re-derive on every version bump.
+            // The settings screen. Reached from the long-press shortcut on LINE's own icon, which
+            // needs no LINE anchor at all, and — through the separate, named `Settings row in LINE
+            // settings` patch — from a row appended to LINE's own Settings list. That row does
+            // depend on LINE anchors (see docs/line-patch-map.md), which is why it is not part of
+            // this mandatory dependency: if it breaks on a version bump, only that patch fails.
             //
             // It must NOT carry a MAIN/LAUNCHER filter. A second launcher activity makes the
             // package's launch intent ambiguous, and `getLaunchIntentForPackage` — which is what a

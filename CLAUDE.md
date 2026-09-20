@@ -58,10 +58,15 @@ user can switch one off without re-patching. Three pieces:
   providers *before* `Application.onCreate`, which is how `Settings` gets a `Context` with **no
   bytecode hook and no fingerprint** — deliberately, since LINE's Application class is obfuscated and
   an anchor there would be one more thing to re-derive on a version bump.
-- **`SettingsActivity`** — opened from the **long-press shortcut on LINE's own icon**, not from a row
-  inside LINE's settings. LINE builds that list from obfuscated declarative Kotlin whose rows are
-  region-dependent (`l15.c` / `px4.b0`, see `docs/line-patch-map.md`), so a row injection would break
-  per version. The layout is built in code because only the extension's **dex** is merged — it cannot
+- **`SettingsActivity`** — opened from the **long-press shortcut on LINE's own icon** (always) and,
+  with the named `Settings row in LINE settings` patch (`settings/SettingsRowPatch.kt`, default on),
+  from a **"Patch settings" row appended to the end of LINE's own Settings screen**. The row is one
+  of LINE's own row objects (the string-titled type behind its "Melody store" entry), built in the
+  extension by reflection + `java.lang.reflect.Proxy` over the Kotlin function interfaces its
+  constructor takes, and appended by rewriting the main page's list accessor. Anchors are the
+  non-obfuscated function-reference strings in the page's `<clinit>` and the row binder's
+  `Locale.TAIWAN`/`"TH"`/`"JP"` switch — see `docs/line-patch-map.md` (Settings screen). The
+  shortcut stays because it needs no LINE anchor at all. The layout is built in code because only the extension's **dex** is merged — it cannot
   reference a resource it declares itself, so framework resources (`@android:style/…`) are the only
   ones the manifest entry may name. Three device-confirmed constraints on it:
   - **Never give it a `MAIN`/`LAUNCHER` filter.** A second launcher activity makes the *package's*

@@ -27,6 +27,8 @@ public final class SettingsInitProvider extends ContentProvider {
         // handler, which has none to pass. Captured here for the same reason Settings is: a provider
         // runs before Application.onCreate with no LINE anchor to break on a version bump.
         ReadReceipts.setContext(getContext());
+        // Fallback for the settings row when the tapped row hands over no Fragment.
+        SettingsRow.setContext(getContext());
         return true;
     }
 
