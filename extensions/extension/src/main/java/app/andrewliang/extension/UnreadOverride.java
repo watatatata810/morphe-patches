@@ -297,7 +297,7 @@ public final class UnreadOverride {
 
     private static void toggle(Activity activity, TextView chip) {
         try {
-            String chatId = ReadReceipts.currentChat();
+            String chatId = ReadReceipts.chatIdOf(activity);
             if (chatId == null) {
                 return;
             }
@@ -329,7 +329,7 @@ public final class UnreadOverride {
                 return;
             }
             TextView chip = (TextView) found;
-            boolean reads = effectiveReadsAllowed(ReadReceipts.currentChat());
+            boolean reads = effectiveReadsAllowed(ReadReceipts.chatIdOf(activity));
             boolean night = (activity.getResources().getConfiguration().uiMode
                     & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
 

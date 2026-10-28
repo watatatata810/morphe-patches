@@ -33,7 +33,10 @@ internal fun MutableMethod.firstParameterRegister(): Int {
  * would otherwise call the same extension entry points twice per chat.
  *
  *  1. **Track the chat.** At the head of `ChatHistoryRequest.getChatId`, hand the request to
- *     `ReadReceipts.trackChat`, which reads its non-obfuscated `chatId` / `isGroup` fields.
+ *     `ReadReceipts.trackChat`, which reads its non-obfuscated `chatId` / `isGroup` fields. Only a
+ *     fallback: `getChatId` also runs from `writeToParcel`, and LINE parcels a request for every
+ *     message notification it posts, so this follows whichever chat last notified. The extension
+ *     reads the chat a screen shows from that screen's own intent (`chatHistoryRequest`) first.
  *  2. **Walk the message list.** At the head of `ChatHistoryActivity.onCreate`, hand the activity to
  *     `ReadReceipts.decorate`, which re-runs on every layout pass — attaching the reader-sheet taps
  *     when that toggle is on, and hiding the added incoming counters where they are meaningless.

@@ -1117,7 +1117,42 @@ all empty polymorphic bases) exposes no clean `server_id`, so instead of hooking
 `oj1.d`, the tapped row's visible **text + minute** are matched back to `chat_history` (text rows by
 `content`, media/sticker rows — no text view — by null `content` at that minute). Several messages
 sharing a minute and content are folded together and the readers of the earliest are shown, so no
-reader is missed. The sheet slides up from the bottom (like LINE's reaction viewer) and matches
+reader is missed.
+
+**Superseded for normal rows: the row is now mapped to its exact message id at bind time.** Text +
+minute cannot tell apart the same short text sent at the same minute on another day or by another
+member, and folding to the earliest over-counts (whoever read a later message has read the earlier
+one, not the reverse). `ke1.e.onBindViewHolder` passes each row's message id (`s61.c.c`, the server
+id) to the read counter `c88.a.a(J)I`; `ChatRowBindFingerprint` (name `onBindViewHolder` +
+`Resources.getString(I[Object)` + exactly one `(J)I` interface call) finds it, and two branchless
+calls hand the extension the ViewHolder at index 0 (`p1`) and that call's own long operand pair just
+before it. The extension maps the holder's item view (the ViewHolder base's sole `View` field —
+RecyclerView is obfuscated, `RecyclerView$e0.a`) to the id in a `WeakHashMap`, cleared on each
+rebind. Text + minute matching remains only as the fallback for an unmapped row. Device-confirmed:
+taps log `bound id …`, and after scrolling away and back each row still maps to its own id.
+
+**The chat comes from the screen's intent, not from `getChatId`.** `ChatHistoryRequest.getChatId`
+also runs from `writeToParcel`, and the message-notification builder
+(`ChatHistoryMessageNotificationContentIntentReceiver$a.a`) puts a request for the notified chat into
+an intent (`putExtra("chatHistoryRequest", …)`) and wraps it in a `PendingIntent` — so a message
+arriving in another chat overwrote the tracked chat while the user was still in the first, until the
+screen was resumed again (`wb1.d.onStart/onResume` → `request.c.u()` → `getChatId`). It broke the
+readers sheet ("特定できませんでした") and made the "Keep chats unread" chip toggle the *other* chat.
+`ChatHistoryActivity` has a standard launch mode and no `onNewIntent`, so each instance shows one
+chat for life and its intent's `chatHistoryRequest` extra is authoritative; `ReadReceipts.chatIdOf`
+reads it (device-confirmed: `read from its intent (group=true)`), keeping the tracked value only as a
+fallback.
+
+**The minute has to be formatted the way LINE formats it, not with a fixed pattern.** `wi1.h.J0`
+writes the row's timestamp with `DateUtils.formatDateTime(context, t, FORMAT_SHOW_TIME)`, where `t`
+is `chat_history.created_time` (`s61.f$b` = `i38.b.h`; `delivered_time` only when `created_time` is
+one of the `g38.q0.a0`/`b0` placeholder dates). A ja-JP 24-hour clock renders that as `H:mm`, so a
+fixed `HH:mm` never matched anything sent before 10:00 (`9:07` vs `09:07`) and the sheet reported
+the message as unidentifiable; a 12-hour clock (`午後3:05`) would have matched nothing at all. The
+extension now calls the same API (`ReadReceipts.displayedTime`). Device-confirmed: the row showed
+`9:07` and the sheet listed both readers.
+
+The sheet slides up from the bottom (like LINE's reaction viewer) and matches
 LINE's in-app dark/light theme by the **luminance of the tapped count's own text colour** — the one
 signal that survives; the system night flag and the activity theme's `colorBackground` both read
 light while LINE renders dark, and its chat background is not a sampleable `ColorDrawable`.
