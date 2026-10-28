@@ -167,6 +167,7 @@ row, and the sibling "Hide community button" which targets `OPEN_CHAT`).
 | Redirect LINE Pay | `line.disablepay` | `PayLaunchActivity` / `PayLiffActivity` onCreate (see below) |
 | Keep unsent messages | `line.keepunsent` | `g38.b0.invoke` — the unsend DB write (see below) |
 | Settings row in LINE settings | `line.settings` | `j25.u2.a()` — the main Settings list accessor (see below) |
+| Hide Agent i buttons | `line.hideagenti` | `gg2.k.i` — Home header draw flag `gg2.k.a` (first `iget-boolean`, then `access_agenti` 0x7f15006b); `jw4.h2.b()` — accessor of `function.search.line_ai_entry.enabled` (search bar entry). Both filtered through `Gates.agentIEntryShown(Z)Z`. Ported from andrewliang25/morphe-patches (26.14.0); device-confirmed on 26.11.0 2026-10-28 |
 
 Each is an independent, `default = true`, user-facing `bytecodePatch` — one feature (or one feature's
 full set of entry points) per patch, matching the bundle's convention (cf. *Hide Wallet tab*,

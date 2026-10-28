@@ -16,6 +16,7 @@ object SettingKeys {
     const val HIDE_VOOM_TAB = "hide_voom_tab"
     const val HIDE_LINE_TODAY_TAB = "hide_line_today_tab"
     const val HIDE_COMMUNITY_BUTTON = "hide_community_button"
+    const val HIDE_AGENT_I = "hide_agent_i"
 
     const val HIDE_GIFT = "hide_gift"
     const val HIDE_TRANSFER = "hide_transfer"

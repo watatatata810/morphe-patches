@@ -67,6 +67,10 @@ public final class Settings {
                 "Navigation", "hide_community_button",
                 "Hide community button",
                 "Remove the community (OpenChat) button from the Chats tab header."),
+        HIDE_AGENT_I(
+                "Navigation", "hide_agent_i",
+                "Hide Agent i buttons",
+                "Remove the Agent i button from the Home header and from the search bar."),
 
         HIDE_GIFT(
                 "Chat surfaces", "hide_gift",

@@ -40,4 +40,15 @@ public final class Gates {
     public static boolean premiumUnsendPromoEligible(boolean original) {
         return !Settings.isEnabled(Settings.Key.HIDE_PREMIUM_UNSEND) && original;
     }
+
+    /**
+     * Filters the two Agent i entry flags: the Home header's draw flag ({@code gg2.k.a}) and the
+     * search bar's server flag accessor ({@code jw4.h2.b()}).
+     *
+     * @param original whether LINE would show the entry.
+     * @return false while the toggle is on; otherwise the original answer.
+     */
+    public static boolean agentIEntryShown(boolean original) {
+        return !Settings.isEnabled(Settings.Key.HIDE_AGENT_I) && original;
+    }
 }
