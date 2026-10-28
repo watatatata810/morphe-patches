@@ -22,6 +22,8 @@ import java.lang.ref.WeakReference;
 import java.lang.reflect.Method;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Per-chat, temporary override of the "Keep chats unread" toggle, driven by a chip on the chat
@@ -81,6 +83,21 @@ public final class UnreadOverride {
     /** Number of LINE activities currently started; zero means the app is in the background. */
     private static int startedActivities;
 
+    private static final String CHAT_HISTORY_ACTIVITY =
+            "jp.naver.line.android.activity.chathistory.ChatHistoryActivity";
+
+    /** The chat screen most recently resumed; cleared when it is destroyed or the app backgrounds. */
+    private static volatile WeakReference<Activity> shownChat = new WeakReference<>(null);
+
+    /** LINE's read manager ({@code q33.e} on 26.11.0), registered from its constructor. */
+    private static volatile Object readManager;
+
+    private static Method latestUnreadMethod;
+    private static Method readWorkerMethod;
+
+    /** The reads LINE's own send path does run on an IO scheduler; this does the same job. */
+    private static final ExecutorService readExecutor = Executors.newSingleThreadExecutor();
+
     // ------------------------------------------------------------------ setup
 
     /** Called by {@link SettingsInitProvider}; registers the app-background tracking. */
@@ -110,6 +127,9 @@ public final class UnreadOverride {
 
         @Override
         public void onActivityResumed(Activity activity) {
+            if (CHAT_HISTORY_ACTIVITY.equals(activity.getClass().getName())) {
+                shownChat = new WeakReference<>(activity);
+            }
             // The override may have been reset while this chat was in the background.
             refreshChip(activity);
         }
@@ -202,6 +222,93 @@ public final class UnreadOverride {
         }
     }
 
+    // ------------------------------------------------------------------ read on reaction
+
+    /** Injected at the end of the read manager's constructor. */
+    public static void setReadManager(Object manager) {
+        readManager = manager;
+    }
+
+    /**
+     * Injected right after LINE sends a reaction (not a reaction removal) to a message in
+     * {@code chatId}.
+     *
+     * <p>Sending a message marks its chat read: LINE's send task, when the app is in the foreground
+     * and the chat is the one on screen, reads up to the newest message ({@code e98.u4.f} →
+     * {@code q33.e.e}). That path never passes the "Keep chats unread" gate, so it works with the
+     * toggle on. Sending a reaction has no such step, which leaves the sender seeing a reaction
+     * without a read receipt. This repeats the send path's read, under the same conditions, so that
+     * a reaction counts as replying. With nothing unread LINE's own lookup returns 0 and nothing
+     * is sent, so it is a no-op whenever the chat already reads as normal.
+     */
+    public static void onReactionSent(final String chatId) {
+        try {
+            final Object manager = readManager;
+            if (manager == null || chatId == null || !isShownChat(chatId)) {
+                return;
+            }
+            readExecutor.execute(new Runnable() {
+                @Override
+                public void run() {
+                    readLatest(manager, chatId);
+                }
+            });
+        } catch (Throwable t) {
+            Log.w(TAG, "Could not mark the chat read after a reaction.", t);
+        }
+    }
+
+    /** The send path's "app in foreground and this chat on screen" check. */
+    private static boolean isShownChat(String chatId) {
+        synchronized (UnreadOverride.class) {
+            if (startedActivities == 0) {
+                return false;
+            }
+        }
+        Activity activity = shownChat.get();
+        return activity != null && !activity.isFinishing()
+                && chatId.equals(ReadReceipts.chatIdOf(activity));
+    }
+
+    /**
+     * What {@code q33.c.run} does for the send path: look up the newest message to read up to
+     * ({@code (String) -> long}, 0 when there is nothing), then hand it to the read worker
+     * ({@code (long, String, boolean) -> void}), which updates the local state and sends the
+     * receipt. Both are found by shape; the patch checks at patch time that each shape is unique.
+     */
+    private static void readLatest(Object manager, String chatId) {
+        try {
+            resolveReadMethods(manager.getClass());
+            if (latestUnreadMethod == null || readWorkerMethod == null) {
+                return;
+            }
+            long messageId = (Long) latestUnreadMethod.invoke(manager, chatId);
+            if (messageId == 0L) {
+                return;
+            }
+            readWorkerMethod.invoke(manager, messageId, chatId, true);
+        } catch (Throwable t) {
+            Log.w(TAG, "Could not mark the chat read after a reaction.", t);
+        }
+    }
+
+    private static synchronized void resolveReadMethods(Class<?> managerClass) {
+        if (latestUnreadMethod != null && readWorkerMethod != null) {
+            return;
+        }
+        for (Method method : managerClass.getDeclaredMethods()) {
+            Class<?>[] p = method.getParameterTypes();
+            if (method.getReturnType() == long.class && p.length == 1 && p[0] == String.class) {
+                method.setAccessible(true);
+                latestUnreadMethod = method;
+            } else if (method.getReturnType() == void.class && p.length == 3
+                    && p[0] == long.class && p[1] == String.class && p[2] == boolean.class) {
+                method.setAccessible(true);
+                readWorkerMethod = method;
+            }
+        }
+    }
+
     // ------------------------------------------------------------------ reset
 
     /** Injected at the head of {@code ChatHistoryActivity.onDestroy}. */
@@ -209,6 +316,9 @@ public final class UnreadOverride {
         // One chat screen at a time in practice; dropping everything is the safe reading of
         // "back to the settings value once the room is closed".
         clearAll();
+        if (shownChat.get() == activity) {
+            shownChat = new WeakReference<>(null);
+        }
     }
 
     private static void clearAll() {

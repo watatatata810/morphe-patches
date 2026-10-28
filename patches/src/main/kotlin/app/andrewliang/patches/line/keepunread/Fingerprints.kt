@@ -2,6 +2,19 @@ package app.andrewliang.patches.line.keepunread
 
 import app.morphe.patcher.Fingerprint
 import app.morphe.patcher.methodCall
+import app.morphe.patcher.string
+
+/**
+ * `toString()` of the Thrift struct `ReactRequest` (`cb8.ff` on 26.11.0). Only used for its
+ * defining class: the request type is what tells the "send a reaction" call apart from
+ * "cancel a reaction" in the same method (see `keepChatsUnreadPatch`).
+ */
+internal object ReactRequestToStringFingerprint : Fingerprint(
+    name = "toString",
+    returnType = "Ljava/lang/String;",
+    parameters = listOf(),
+    filters = listOf(string("ReactRequest(reqSeq:")),
+)
 
 /**
  * The 1:1/group read worker `q33.e.d(J, String, Z)` — it performs both the local read-state

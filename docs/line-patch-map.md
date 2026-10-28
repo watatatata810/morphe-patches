@@ -820,6 +820,32 @@ LINE itself defers reads: while the lock screen is showing, `lv7.t0` queues the 
 Layout anchor for the chip: the top edge of `R.id.chathistory_message_list` (`0x7f0b096a`), which is
 just below LINE's header; the chip sits in `android.R.id.content` at top|end.
 
+### Replying reads the chat — messages (LINE) and reactions (patch)
+
+Sending a message reads its chat even with the toggle on, and that is LINE's own client code, not
+the server: the send task `e98.u4.f` (`SEND_MESSAGE`) checks `el0.b.isForeground()` and
+`fl0.b.a(chatId)` and then calls `q33.e.e(chatId).m()` → `q33.c.run` → `q33.e.a(chatId)` (newest
+message to read up to; `0` = nothing) → `q33.e.d(id, chatId, true)`. That path never goes through
+the gated wrapper `q33.e.b`. `e98.u4` gets its `q33.e` from `y60.g.a(ctx, kx.d.a)` → `kx.d.b()` →
+`u13.f1.a`.
+
+Sending a reaction has no read step at all, so with the toggle on the other side saw a reaction
+with no 既読. The reaction is `u13.o.C(J, l33.f, …)` → `g38.b2.invokeSuspend`
+(`MessageDataManager$updateMessageReaction$2`): it loads the message (`g38.g2.l` → `i38.b`, the
+`ChatHistoryMessageData`: `b` serverMessageId, `c` chatId), then calls
+`TalkServiceClient.m1(cb8.ff ReactRequest)` to react or `A2(cb8.t4 CancelReactionRequest)` to take it
+back. The patch makes a reaction behave like a message, with no separate toggle (device-confirmed
+2026-10-28: reacting in an unread chat clears its badge):
+
+- `q33.e.<init>` hands `this` to `UnreadOverride.setReadManager` before its `return-void`.
+- Right after `m1`'s `move-result-object` (react only, not cancel): `iget-object` the message's chat
+  id + `UnreadOverride.onReactionSent(String)`, branchless. The call is keyed on the request type
+  (`ReactRequest(reqSeq:` toString), the message class on the method's sentinel `sget-object
+  i38.b.A`, and the chat id field is cross-checked against `i38.b.toString`'s `", chatId="`.
+- The extension applies the send path's condition (app started, chat on the last resumed
+  `ChatHistoryActivity`) and then does `q33.c.run`'s two calls by shape on a background thread. It
+  ignores the toggle and the chip, exactly as the send path does; with nothing unread `a` returns 0.
+
 ## Settings screen & the "Settings row in LINE settings" patch
 
 LINE's top-level Settings screen is `com.linecorp.line.settings.main.LineUserMainSettingsFragment`
